@@ -35,6 +35,14 @@ pub struct WebGLCommandBacktrace {
     pub js_backtrace: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct WebGLLockMessage {
+    pub texture_id: u32,
+    pub size: Size2D<i32>,
+    pub io_surface_id: Option<u32>,
+    pub gl_sync: usize,
+}
+
 /// WebGL Message API
 #[derive(Debug, Deserialize, Serialize)]
 pub enum WebGLMsg {
@@ -58,7 +66,7 @@ pub enum WebGLMsg {
     /// WR locks a external texture when it wants to use the shared texture contents.
     /// The WR client should not change the shared texture content until the Unlock call.
     /// Currently OpenGL Sync Objects are used to implement the synchronization mechanism.
-    Lock(WebGLContextId, WebGLSender<(u32, Size2D<i32>, usize)>),
+    Lock(WebGLContextId, WebGLSender<WebGLLockMessage>),
     /// Unlocks a specific WebGLContext. Unlock messages are used for a correct synchronization
     /// with WebRender external image API.
     /// The WR unlocks a context when it finished reading the shared texture contents.
@@ -68,6 +76,8 @@ pub enum WebGLMsg {
     UpdateWebRenderImage(WebGLContextId, WebGLSender<ImageKey>),
     /// Commands used for the DOMToTexture feature.
     DOMToTextureCommand(DOMToTextureCommand),
+    /// Tells the WebGL contexts to swap their underlying texture targets
+    Swap(WebGLSender<()>),
     /// Frees all resources and closes the thread.
     Exit,
 }

@@ -57,30 +57,62 @@ impl GLContextFactory {
     ) -> Result<GLContextWrapper, &'static str> {
         let attributes = map_attrs(attributes);
         Ok(match *self {
-            GLContextFactory::Native(ref handle, ref dispatcher) => {
-                let dispatcher = dispatcher.as_ref().map(|d| Box::new(d.clone()) as Box<_>);
-                GLContextWrapper::Native(GLContext::new_shared_with_dispatcher(
-                    // FIXME(nox): Why are those i32 values?
-                    size.to_i32(),
-                    attributes,
-                    ColorAttachmentType::Texture,
-                    gl::GlType::default(),
-                    Self::gl_version(webgl_version),
-                    Some(handle),
-                    dispatcher,
-                )?)
+            GLContextFactory::Native(ref _handle, ref _dispatcher) => {
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let dispatcher = _dispatcher.as_ref().map(|d| Box::new(d.clone()) as Box<_>);
+                    GLContextWrapper::Native(GLContext::new_shared_with_dispatcher(
+                        // FIXME(nox): Why are those i32 values?
+                        size.to_i32(),
+                        attributes,
+                        ColorAttachmentType::Texture,
+                        gl::GlType::default(),
+                        Self::gl_version(webgl_version),
+                        Some(_handle),
+                        dispatcher,
+                    )?)
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    GLContextWrapper::NativeWithIOSurface(GLContext::new_shared_with_dispatcher(
+                        // FIXME(nox): Why are those i32 values?
+                        size.to_i32(),
+                        attributes,
+                        ColorAttachmentType::IOSurface,
+                        gl::GlType::default(),
+                        Self::gl_version(webgl_version),
+                        None,
+                        None,
+                    )?)
+                }
             },
-            GLContextFactory::OSMesa(ref handle) => {
-                GLContextWrapper::OSMesa(GLContext::new_shared_with_dispatcher(
-                    // FIXME(nox): Why are those i32 values?
-                    size.to_i32(),
-                    attributes,
-                    ColorAttachmentType::Texture,
-                    gl::GlType::default(),
-                    Self::gl_version(webgl_version),
-                    Some(handle),
-                    None,
-                )?)
+            GLContextFactory::OSMesa(ref _handle) => {
+                #[cfg(not(target_os = "macos"))]
+                {
+                    GLContextWrapper::OSMesa(GLContext::new_shared_with_dispatcher(
+                        // FIXME(nox): Why are those i32 values?
+                        size.to_i32(),
+                        attributes,
+                        ColorAttachmentType::Texture,
+                        gl::GlType::default(),
+                        Self::gl_version(webgl_version),
+                        Some(_handle),
+                        None,
+                    )?)
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    GLContextWrapper::OSMesaWithIOSurface(GLContext::new_shared_with_dispatcher(
+                        // FIXME(nox): Why are those i32 values?
+                        size.to_i32(),
+                        attributes,
+                        ColorAttachmentType::IOSurface,
+                        gl::GlType::default(),
+                        Self::gl_version(webgl_version),
+                        None,
+                        None,
+                    )?)
+                }
             },
         })
     }
@@ -133,6 +165,10 @@ impl GLContextFactory {
 pub enum GLContextWrapper {
     Native(GLContext<NativeGLContext>),
     OSMesa(GLContext<OSMesaContext>),
+    #[cfg(target_os = "macos")]
+    NativeWithIOSurface(GLContext<NativeGLContext>),
+    #[cfg(target_os = "macos")]
+    OSMesaWithIOSurface(GLContext<NativeGLContext>),
 }
 
 impl GLContextWrapper {
@@ -142,6 +178,14 @@ impl GLContextWrapper {
                 ctx.make_current().unwrap();
             },
             GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.make_current().unwrap();
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref ctx) => {
+                ctx.make_current().unwrap();
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref ctx) => {
                 ctx.make_current().unwrap();
             },
         }
@@ -160,6 +204,14 @@ impl GLContextWrapper {
             GLContextWrapper::OSMesa(ref ctx) => {
                 WebGLImpl::apply(ctx, state, cmd, backtrace);
             },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref ctx) => {
+                WebGLImpl::apply(ctx, state, cmd, backtrace);
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref ctx) => {
+                WebGLImpl::apply(ctx, state, cmd, backtrace);
+            },
         }
     }
 
@@ -167,37 +219,113 @@ impl GLContextWrapper {
         match *self {
             GLContextWrapper::Native(ref ctx) => ctx.gl(),
             GLContextWrapper::OSMesa(ref ctx) => ctx.gl(),
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref ctx) => ctx.gl(),
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref ctx) => ctx.gl(),
         }
     }
 
-    pub fn get_info(&self) -> (Size2D<i32>, u32, GLLimits) {
+    pub fn get_info(&self) -> (Size2D<i32>, u32, Option<u32>, GLLimits) {
         match *self {
             GLContextWrapper::Native(ref ctx) => {
-                let (real_size, texture_id) = {
+                let (real_size, texture_id, io_surface_id) = {
                     let draw_buffer = ctx.borrow_draw_buffer().unwrap();
                     (
                         draw_buffer.size(),
                         draw_buffer.get_bound_texture_id().unwrap(),
+                        None,
                     )
                 };
 
                 let limits = ctx.borrow_limits().clone();
 
-                (real_size, texture_id, map_limits(limits))
+                (real_size, texture_id, io_surface_id, map_limits(limits))
             },
             GLContextWrapper::OSMesa(ref ctx) => {
-                let (real_size, texture_id) = {
+                let (real_size, texture_id, io_surface_id) = {
                     let draw_buffer = ctx.borrow_draw_buffer().unwrap();
                     (
                         draw_buffer.size(),
                         draw_buffer.get_bound_texture_id().unwrap(),
+                        None,
                     )
                 };
 
                 let limits = ctx.borrow_limits().clone();
 
-                (real_size, texture_id, map_limits(limits))
+                (real_size, texture_id, io_surface_id, map_limits(limits))
             },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref ctx) => {
+                let (real_size, texture_id, io_surface_id) = {
+                    let draw_buffer = ctx.borrow_draw_buffer().unwrap();
+                    (
+                        draw_buffer.size(),
+                        draw_buffer.get_bound_texture_id().unwrap(),
+                        draw_buffer.get_active_io_surface_id(),
+                    )
+                };
+
+                let limits = ctx.borrow_limits().clone();
+
+                (real_size, texture_id, io_surface_id, map_limits(limits))
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref ctx) => {
+                let (real_size, texture_id, io_surface_id) = {
+                    let draw_buffer = ctx.borrow_draw_buffer().unwrap();
+                    (
+                        draw_buffer.size(),
+                        draw_buffer.get_bound_texture_id().unwrap(),
+                        draw_buffer.get_active_io_surface_id(),
+                    )
+                };
+
+                let limits = ctx.borrow_limits().clone();
+
+                (real_size, texture_id, io_surface_id, map_limits(limits))
+            },
+        }
+    }
+
+    pub fn get_active_io_surface_id(&self) -> Option<u32> {
+        match *self {
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref ctx) => {
+                ctx.borrow_draw_buffer().unwrap().get_active_io_surface_id()
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref ctx) => {
+                ctx.borrow_draw_buffer().unwrap().get_active_io_surface_id()
+            },
+            _ => None,
+        }
+    }
+
+    /// Swap the backing texture for the draw buffer, returning the id of the IOsurface
+    /// now used for reading.
+    pub fn swap_draw_buffer(&mut self, _clear_color: (f32, f32, f32, f32)) -> Option<u32> {
+        match *self {
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref mut ctx) => {
+                ctx.swap_draw_buffer(_clear_color)
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref mut ctx) => {
+                ctx.swap_draw_buffer(_clear_color)
+            },
+            _ => None,
+        }
+    }
+
+    pub fn handle_lock(&mut self) -> Option<u32> {
+        match *self {
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref mut ctx) => ctx.handle_lock(),
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref mut ctx) => ctx.handle_lock(),
+            _ => None,
         }
     }
 
@@ -208,6 +336,16 @@ impl GLContextWrapper {
                 ctx.resize(size.to_i32())
             },
             GLContextWrapper::OSMesa(ref mut ctx) => {
+                // FIXME(nox): Why are those i32 values?
+                ctx.resize(size.to_i32())
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::NativeWithIOSurface(ref mut ctx) => {
+                // FIXME(nox): Why are those i32 values?
+                ctx.resize(size.to_i32())
+            },
+            #[cfg(target_os = "macos")]
+            GLContextWrapper::OSMesaWithIOSurface(ref mut ctx) => {
                 // FIXME(nox): Why are those i32 values?
                 ctx.resize(size.to_i32())
             },
