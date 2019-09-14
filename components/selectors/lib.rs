@@ -25,7 +25,7 @@ extern crate to_shmem_derive;
 
 pub mod attr;
 pub mod bloom;
-mod builder;
+pub mod builder;
 pub mod context;
 pub mod matching;
 mod nth_index_cache;

@@ -707,7 +707,7 @@ impl<Impl: SelectorImpl> Selector<Impl> {
 
     /// Creates a Selector from a vec of Components, specified in parse order. Used in tests.
     #[allow(unused)]
-    pub(crate) fn from_vec(
+    pub fn from_vec(
         vec: Vec<Component<Impl>>,
         specificity: u32,
         flags: SelectorFlags,
